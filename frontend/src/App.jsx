@@ -49,7 +49,9 @@ export default function App() {
         } else if (v.status !== "error") {
           setTimeout(poll, 3000);
         }
-      } catch (_) {}
+      } catch (err) {
+        console.error("Polling error:", err);
+      }
     };
 
     poll();
@@ -109,9 +111,10 @@ export default function App() {
       <VideoSelector selectedId={selectedVideo?.id} onSelect={handleSelectVideo} />
 
       {/* Main 3-column layout */}
-      <div className="flex-1 min-h-0 grid grid-cols-[280px_1fr_320px] grid-rows-[minmax(0,1fr)] overflow-hidden">
+      <div className="flex-1 min-h-0 grid grid-cols-[300px_1fr_320px] grid-rows-[minmax(0,1fr)] overflow-hidden">
         {/* Left: Timeline Explorer */}
         <TimelineExplorer
+          videoId={selectedVideo?.id}
           timeline={timeline}
           complianceIssues={compliance}
           onSeek={seekTo}

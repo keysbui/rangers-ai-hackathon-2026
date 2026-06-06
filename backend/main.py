@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -8,10 +9,19 @@ from api.query import router as query_router
 from api.compliance import router as compliance_router
 from config import THUMBNAIL_DIR, STORAGE_DIR
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize database
+    init_db()
+    yield
+
+
 app = FastAPI(
     title="Video Intelligence Engine",
     description="Multimodal RAG system for Southeast Asian e-commerce videos",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -27,11 +37,6 @@ app.include_router(query_router)
 app.include_router(compliance_router)
 
 app.mount("/thumbnails", StaticFiles(directory=str(THUMBNAIL_DIR)), name="thumbnails")
-
-
-@app.on_event("startup")
-def on_startup():
-    init_db()
 
 
 @app.get("/health")

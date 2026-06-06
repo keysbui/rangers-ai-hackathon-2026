@@ -306,6 +306,61 @@ def answer_question(
     return result
 
 
+_HIGHLIGHT_PROMPT = """
+You are a creative ad director. Given the video segments below and a set of market trends, select the top 3 segments most suitable for a viral short video ad (TikTok/Reels style).
+
+Trends: {trends}
+
+Segments:
+{segment_data}
+
+For each selected segment, provide:
+1. "timestamp": start time of the segment
+2. "reason": why this segment is perfect for the trends
+3. "ad_copy": a catchy, high-conversion caption for this segment in {language}
+
+Return ONLY a valid JSON object with a "highlights" key containing a list of objects.
+Example:
+{{
+  "highlights": [
+    {{ "timestamp": 12.5, "reason": "...", "ad_copy": "..." }},
+    ...
+  ]
+}}
+"""
+
+
+def rank_highlights(
+    segment_data: list[dict],
+    trends: str,
+    language: str = "vi",
+) -> dict[str, Any]:
+    """Use Seed to select the best segments for ad highlights based on trends."""
+    segment_text = json.dumps(segment_data, ensure_ascii=False, indent=2)
+    prompt = _HIGHLIGHT_PROMPT.format(
+        segment_data=segment_text,
+        trends=trends,
+        language=language,
+    )
+
+    t0 = time.time()
+    response = _client.chat.completions.create(
+        model=MODEL_ID,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=1500,
+        extra_body=_THINKING_OFF,
+    )
+    latency_ms = (time.time() - t0) * 1000
+
+    raw = _extract_message_text(response)
+    parsed = _extract_json(raw)
+    result = parsed if parsed is not None else {"highlights": []}
+
+    result["_latency_ms"] = latency_ms
+    result["_tokens"] = _usage_tokens(response.usage)
+    return result
+
+
 def check_compliance(transcript: str, ocr_text: str) -> dict[str, Any]:
     """Check for spoken-vs-visual inconsistencies in a segment."""
     prompt = _COMPLIANCE_PROMPT.format(transcript=transcript, ocr_text=ocr_text)
