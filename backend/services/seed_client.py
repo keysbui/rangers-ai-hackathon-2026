@@ -15,7 +15,14 @@ from openai import OpenAI
 
 from config import ARK_API_KEY, ARK_BASE_URL, MODEL_ID
 
-_client = OpenAI(api_key=ARK_API_KEY, base_url=ARK_BASE_URL)
+_client: OpenAI | None = None
+
+
+def _get_client() -> OpenAI:
+    global _client
+    if _client is None:
+        _client = OpenAI(api_key=ARK_API_KEY, base_url=ARK_BASE_URL)
+    return _client
 
 # Disable the model's deep-thinking mode for these structured extraction tasks.
 # Seed is a reasoning model; with thinking on + a small token budget it can spend
@@ -118,6 +125,149 @@ Return ONLY a valid JSON object:
 }}
 """
 
+_POLICY_AUDIT_PROMPT = """
+You are a TikTok Shop livestream replay content policy auditor.
+
+Analyze the segment data below and identify any potential violations of TikTok Shop content policies.
+Only flag items that are supported by clear evidence in transcript or on-screen text.
+
+Segment transcript (spoken): {transcript}
+Segment on-screen text (OCR): {ocr_text}
+Detected SKUs / products: {detected_skus}
+
+Return ONLY a valid JSON object:
+{{
+  "violations": [
+    {{
+      "rule_id": "<stable_id>",
+      "rule_name": "<short name in Vietnamese>",
+      "policy_category": "<category>",
+      "severity": "<low|medium|high>",
+      "confidence": <float 0.0-1.0>,
+      "evidence": {{
+        "transcript_snippet": "<short quote or empty>",
+        "ocr_snippet": "<short quote or empty>",
+        "why": "<1-2 sentences>"
+      }}
+    }}
+  ]
+}}
+
+Rule ids/categories to use when relevant:
+- OFF_PLATFORM_REDIRECT: chuyển hướng người dùng ra ngoài nền tảng (link, QR, số điện thoại, email, MXH, nhắn tin)
+- PROHIBITED_PRODUCTS: quảng bá sản phẩm bị cấm/không được hỗ trợ (thuốc kê đơn, vũ khí, thuốc lá/ma túy)
+- RESTRICTED_PRODUCTS: quảng bá sản phẩm bị hạn chế khi chưa đủ điều kiện
+- GAMBLING: nội dung cờ bạc/cá cược/lô đề
+- SEXUAL_CONTENT: nội dung khiêu dâm hoặc gợi dục
+- MINORS_TARGETING: nhắm mục tiêu trẻ vị thành niên
+- SHOCKING_CONTENT: nội dung giật gân/gây sốc/bạo lực
+- POLITICAL_CONTENT: nội dung chính trị
+- SENSITIVE_EVENTS: lợi dụng sự kiện nhạy cảm
+- MISLEADING_CLAIMS: nội dung sai lệch/gây hiểu lầm/phóng đại
+- BAIT_AND_SWITCH: bait-and-switch (giá/ưu đãi/đổi sản phẩm)
+- FAKE_ENGAGEMENT: tương tác giả/spam/buff
+- IRRELEVANT_PROMOTION: quảng cáo không liên quan, không quảng bá rõ sản phẩm đang bán
+- NON_INTERACTIVE_CONTENT: nội dung không tương tác (gần như không nói/không có hoạt động ý nghĩa)
+
+If there is no violation, return {{"violations": []}}.
+Return ONLY JSON, no markdown, no explanation.
+"""
+
+_RE_URL = re.compile(r"(https?://\S+|www\.\S+)", re.IGNORECASE)
+_RE_EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
+_RE_PHONE_VN = re.compile(r"(?<!\d)(0\d{8,10})(?!\d)")
+_RE_OFF_PLATFORM_WORDS = re.compile(
+    r"\b(zalo|telegram|whatsapp|facebook|fb|inbox|nhắn tin|nhan tin|sđt|sdt|"
+    r"số điện thoại|so dien thoai|liên hệ|lien he|call|hotline|dm|messenger|"
+    r"link bio|bio|quét qr|quet qr|qr code|qr)\b",
+    re.IGNORECASE,
+)
+_RE_GAMBLING = re.compile(r"\b(lô đề|lo de|cá độ|ca do|casino|bet|cược|cuoc)\b", re.IGNORECASE)
+_RE_PROHIBITED = re.compile(
+    r"\b(ma túy|ma tuy|cần sa|can sa|heroin|cocaine|thuốc lá|thuoc la|vape|pod|"
+    r"súng|sung|đạn|dan|vũ khí|vu khi|bom|lựu đạn|luu dan)\b",
+    re.IGNORECASE,
+)
+_RE_WEIGHT_CLAIM = re.compile(
+    r"\b(giảm cân|giam can|đốt mỡ|dot mo|tan mỡ|"
+    r"giảm\s*\d+\s*kg|giam\s*\d+\s*kg|tăng cân|tang can)\b",
+    re.IGNORECASE,
+)
+
+
+def _policy_audit_local(transcript: str, ocr_text: str, detected_skus: str) -> list[dict[str, Any]]:
+    text = "\n".join([transcript or "", ocr_text or "", detected_skus or ""]).strip()
+    if not text:
+        return []
+
+    violations: list[dict[str, Any]] = []
+
+    if _RE_URL.search(text) or _RE_EMAIL.search(text) or _RE_PHONE_VN.search(text) or _RE_OFF_PLATFORM_WORDS.search(text):
+        violations.append(
+            {
+                "rule_id": "OFF_PLATFORM_REDIRECT",
+                "rule_name": "Chuyển hướng ra ngoài nền tảng",
+                "policy_category": "OFF_PLATFORM_REDIRECT",
+                "severity": "high",
+                "confidence": 0.9,
+                "evidence": {
+                    "transcript_snippet": transcript or "",
+                    "ocr_snippet": ocr_text or "",
+                    "why": "Phát hiện dấu hiệu điều hướng người mua ra ngoài nền tảng (link/QR/số điện thoại/email/MXH).",
+                },
+            }
+        )
+
+    if _RE_GAMBLING.search(text):
+        violations.append(
+            {
+                "rule_id": "GAMBLING",
+                "rule_name": "Nội dung cờ bạc/cá cược",
+                "policy_category": "GAMBLING",
+                "severity": "high",
+                "confidence": 0.85,
+                "evidence": {
+                    "transcript_snippet": transcript or "",
+                    "ocr_snippet": ocr_text or "",
+                    "why": "Phát hiện từ khóa liên quan cờ bạc/cá cược.",
+                },
+            }
+        )
+
+    if _RE_PROHIBITED.search(text):
+        violations.append(
+            {
+                "rule_id": "PROHIBITED_PRODUCTS",
+                "rule_name": "Sản phẩm bị cấm/không hỗ trợ",
+                "policy_category": "PROHIBITED_PRODUCTS",
+                "severity": "high",
+                "confidence": 0.8,
+                "evidence": {
+                    "transcript_snippet": transcript or "",
+                    "ocr_snippet": ocr_text or "",
+                    "why": "Phát hiện từ khóa liên quan sản phẩm bị cấm/không hỗ trợ.",
+                },
+            }
+        )
+
+    if _RE_WEIGHT_CLAIM.search(text):
+        violations.append(
+            {
+                "rule_id": "MISLEADING_CLAIMS",
+                "rule_name": "Tuyên bố quản lý cân nặng",
+                "policy_category": "MISLEADING_CLAIMS",
+                "severity": "medium",
+                "confidence": 0.75,
+                "evidence": {
+                    "transcript_snippet": transcript or "",
+                    "ocr_snippet": ocr_text or "",
+                    "why": "Phát hiện tuyên bố liên quan giảm/tăng cân có nguy cơ vi phạm.",
+                },
+            }
+        )
+
+    return violations
+
 
 def _encode_image(path: Path) -> str:
     return base64.b64encode(path.read_bytes()).decode("utf-8")
@@ -172,7 +322,7 @@ def analyze_segment_video(
     analysis including ASR. Returns parsed JSON with the standard fields.
     """
     t0 = time.time()
-    response = _client.chat.completions.create(
+    response = _get_client().chat.completions.create(
         model=MODEL_ID,
         messages=[
             {
@@ -234,7 +384,7 @@ def analyze_segment(
 
     # Structure as system + user to enable prompt caching on the system prompt
     t0 = time.time()
-    response = _client.chat.completions.create(
+    response = _get_client().chat.completions.create(
         model=MODEL_ID,
         messages=[
             {"role": "system", "content": _ANALYSIS_PROMPT},
@@ -281,7 +431,7 @@ def answer_question(
                 user_content.append(_image_content(p))
 
     t0 = time.time()
-    response = _client.chat.completions.create(
+    response = _get_client().chat.completions.create(
         model=MODEL_ID,
         messages=[{"role": "user", "content": user_content}],
         max_tokens=1500,
@@ -366,7 +516,7 @@ def check_compliance(transcript: str, ocr_text: str) -> dict[str, Any]:
     prompt = _COMPLIANCE_PROMPT.format(transcript=transcript, ocr_text=ocr_text)
 
     t0 = time.time()
-    response = _client.chat.completions.create(
+    response = _get_client().chat.completions.create(
         model=MODEL_ID,
         messages=[{"role": "user", "content": prompt}],
         max_tokens=600,
@@ -384,3 +534,52 @@ def check_compliance(transcript: str, ocr_text: str) -> dict[str, Any]:
 
     result["_latency_ms"] = latency_ms
     return result
+
+
+def policy_audit_segment(
+    transcript: str,
+    ocr_text: str,
+    detected_skus: str = "",
+    mode: str = "auto",
+) -> dict[str, Any]:
+    local = _policy_audit_local(transcript, ocr_text, detected_skus)
+    if mode == "fast":
+        return {"violations": local, "_model_used": False}
+    if mode == "auto" and local:
+        return {"violations": local, "_model_used": False}
+
+    prompt = _POLICY_AUDIT_PROMPT.format(
+        transcript=transcript or "",
+        ocr_text=ocr_text or "",
+        detected_skus=detected_skus or "",
+    )
+
+    t0 = time.time()
+    response = _get_client().chat.completions.create(
+        model=MODEL_ID,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=900,
+        extra_body=_THINKING_OFF,
+    )
+    latency_ms = (time.time() - t0) * 1000
+
+    raw = _extract_message_text(response)
+    parsed = _extract_json(raw) or {}
+    violations = parsed.get("violations") if isinstance(parsed, dict) else None
+    if not isinstance(violations, list):
+        violations = []
+
+    if local and mode in {"auto", "full"}:
+        seen = {(v.get("rule_id"), v.get("policy_category")) for v in violations if isinstance(v, dict)}
+        for v in local:
+            key = (v.get("rule_id"), v.get("policy_category"))
+            if key not in seen:
+                violations.append(v)
+                seen.add(key)
+
+    return {
+        "violations": violations,
+        "_model_used": True,
+        "_latency_ms": latency_ms,
+        "_tokens": _usage_tokens(response.usage),
+    }

@@ -35,6 +35,32 @@ class ComplianceResponse(BaseModel):
     total_issues: int
 
 
+class PolicyViolation(BaseModel):
+    rule_id: str
+    rule_name: str
+    policy_category: str
+    severity: str
+    confidence: float
+    evidence: dict
+
+
+class PolicyAuditSegment(BaseModel):
+    segment_id: int
+    timestamp_start: float
+    timestamp_end: float
+    thumbnail_url: Optional[str]
+    violations: list[PolicyViolation]
+
+
+class PolicyAuditResponse(BaseModel):
+    video_id: str
+    mode: str
+    scanned_segments: int
+    model_calls: int
+    segments: list[PolicyAuditSegment]
+    total_violations: int
+
+
 class QAHistoryItem(BaseModel):
     id: int
     video_id: str

@@ -20,18 +20,23 @@ function EnergyBar({ score }) {
   );
 }
 
-function SegmentCard({ seg, onSeek, complianceIssues }) {
+function SegmentCard({ seg, onSeek, complianceIssues, policyViolations }) {
   const hasIssue = complianceIssues?.some(
     (c) =>
       c.timestamp_start <= seg.timestamp_start &&
       c.timestamp_end >= seg.timestamp_end
   );
+  const hasPolicy = (policyViolations || []).length > 0;
   const skus = seg.detected_skus ? seg.detected_skus.split(",").filter(Boolean) : [];
+  const policyStyle = hasPolicy
+    ? "border-amber-700/60 bg-amber-950/10"
+    : "border-slate-700/50 bg-slate-800/40";
+  const cardStyle = hasIssue ? "border-red-800/60 bg-red-950/20" : policyStyle;
 
   return (
     <div
       className={`p-3 rounded-lg border cursor-pointer transition-all hover:border-violet-600/50
-        ${hasIssue ? "border-red-800/60 bg-red-950/20" : "border-slate-700/50 bg-slate-800/40"}`}
+        ${cardStyle}`}
       onClick={() => onSeek(seg.timestamp_start)}
     >
       <div className="flex items-center justify-between mb-1">
@@ -42,12 +47,48 @@ function SegmentCard({ seg, onSeek, complianceIssues }) {
           <Clock size={10} />
           {formatSeconds(seg.timestamp_start)}
         </button>
-        {hasIssue && (
-          <span className="flex items-center gap-1 text-[10px] text-red-400">
-            <AlertTriangle size={10} /> Compliance
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {hasPolicy && (
+            <span className="flex items-center gap-1 text-[10px] text-amber-300">
+              <AlertTriangle size={10} /> Policy {(policyViolations || []).length}
+            </span>
+          )}
+          {hasIssue && (
+            <span className="flex items-center gap-1 text-[10px] text-red-400">
+              <AlertTriangle size={10} /> Compliance
+            </span>
+          )}
+        </div>
       </div>
+
+      {hasPolicy && (
+        <div className="mt-1.5 space-y-1">
+          {(policyViolations || []).slice(0, 2).map((v, i) => {
+            const sev = String(v.severity || "low").toLowerCase();
+            const sevColor =
+              sev === "high"
+                ? "text-red-300"
+                : sev === "medium"
+                  ? "text-amber-300"
+                  : "text-slate-300";
+            return (
+              <div key={i} className="text-[10px] flex items-start gap-2">
+                <span className={`font-medium ${sevColor}`}>
+                  {String(v.severity || "low").toUpperCase()}
+                </span>
+                <span className="text-slate-200">
+                  {v.rule_name || v.rule_id || "Policy violation"}
+                </span>
+              </div>
+            );
+          })}
+          {(policyViolations || []).length > 2 && (
+            <div className="text-[10px] text-amber-300/80">
+              +{(policyViolations || []).length - 2} more
+            </div>
+          )}
+        </div>
+      )}
 
       {seg.transcript && (
         <p className="text-xs text-slate-300 line-clamp-2 mt-1">{seg.transcript}</p>
@@ -84,13 +125,26 @@ function SegmentCard({ seg, onSeek, complianceIssues }) {
   );
 }
 
-export default function TimelineExplorer({ videoId, timeline, complianceIssues, onSeek }) {
+export default function TimelineExplorer({
+  videoId,
+  timeline,
+  complianceIssues,
+  policyAuditSegments,
+  onSeek,
+}) {
   const [activeTab, setActiveTab] = useState("scenes");
   const highEnergy = timeline?.filter((s) => s.energy_score >= 0.7) || [];
+  const policySegments = policyAuditSegments || [];
+  const policyBySegmentId = new Map(
+    policySegments.map((s) => [Number(s.segment_id), s.violations || []])
+  );
+  const policyTotalViolations = policySegments.reduce(
+    (sum, s) => sum + ((s.violations || []).length || 0),
+    0
+  );
 
   return (
     <div className="h-full min-h-0 flex flex-col bg-slate-900 border-r border-slate-700/50 overflow-hidden">
-      {/* Tab Switcher */}
       <div className="flex bg-slate-950/50 p-1 mx-3 mt-3 rounded-lg border border-slate-800">
         <button
           onClick={() => setActiveTab("scenes")}
@@ -120,6 +174,11 @@ export default function TimelineExplorer({ videoId, timeline, complianceIssues, 
               {complianceIssues?.length > 0 && (
                 <span className="text-red-400">{complianceIssues.length} issues</span>
               )}
+              {policySegments.length > 0 && (
+                <span className="text-amber-300">
+                  {policySegments.length} policy seg · {policyTotalViolations} violations
+                </span>
+              )}
             </div>
           </div>
 
@@ -135,6 +194,7 @@ export default function TimelineExplorer({ videoId, timeline, complianceIssues, 
                 seg={seg}
                 onSeek={onSeek}
                 complianceIssues={complianceIssues}
+                policyViolations={policyBySegmentId.get(Number(seg.id)) || []}
               />
             ))}
           </div>
