@@ -38,6 +38,7 @@ export const api = {
   // Query
   query: (videoId, question, language = "vi") =>
     request("POST", "/api/query", { video_id: videoId, question, language }),
+  getQueryHistory: (videoId) => request("GET", `/api/query/history/${videoId}`),
 
   // Compliance
   getCompliance: (videoId) => request("GET", `/api/compliance/${videoId}`),

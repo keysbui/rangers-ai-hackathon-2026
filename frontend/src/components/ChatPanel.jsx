@@ -80,12 +80,7 @@ function Message({ msg, onSeek }) {
 }
 
 export default function ChatPanel({ videoId, onSeek, onTokensUsed }) {
-  const [messages, setMessages] = useState([
-    {
-      role: "system",
-      content: "Ask anything about the video — timestamps, prices, products, compliance.",
-    },
-  ]);
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [language, setLanguage] = useState("vi");
   const [loading, setLoading] = useState(false);
@@ -94,6 +89,38 @@ export default function ChatPanel({ videoId, onSeek, onTokensUsed }) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  const SYSTEM_MSG = {
+    role: "system",
+    content: "Ask anything about the video — timestamps, prices, products, compliance.",
+  };
+
+  useEffect(() => {
+    if (!videoId) {
+      setMessages([SYSTEM_MSG]);
+      return;
+    }
+    api.getQueryHistory(videoId)
+      .then((history) => {
+        const msgs = [SYSTEM_MSG];
+        for (const item of history) {
+          msgs.push({ role: "user", content: item.question });
+          msgs.push({
+            role: "assistant",
+            content: item.answer,
+            timestamp: item.timestamp,
+            timestamp_end: item.timestamp_end,
+            thumbnail_url: item.thumbnail_url
+              ? `http://localhost:8000${item.thumbnail_url}`
+              : null,
+            reasoning_proof: item.reasoning_proof,
+          });
+        }
+        setMessages(msgs);
+      })
+      .catch(() => setMessages([SYSTEM_MSG]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoId]);
 
   const send = async () => {
     const q = input.trim();
