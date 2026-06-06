@@ -1,17 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Sparkles, Play, Quote, TrendingUp, RefreshCw } from 'lucide-react';
+import { Sparkles, Play, Quote, TrendingUp, RefreshCw, Download, Scissors } from 'lucide-react';
 import { api } from '../api/client';
+import { formatSeconds } from '../utils/costTracker';
 
 export default function AdHighlights({ videoId, onSeek }) {
   const [highlights, setHighlights] = useState([]);
   const [loading, setLoading] = useState(false);
   const [trends] = useState('');
 
-  const fetchHighlights = useCallback(async () => {
+  const fetchHighlights = useCallback(async (force = false) => {
     if (!videoId) return;
     setLoading(true);
     try {
-      const data = await api.getHighlights(videoId, trends);
+      const data = await api.getHighlights(videoId, trends, force);
       setHighlights(data.highlights || []);
     } catch (err) {
       console.error('Failed to fetch highlights:', err);
@@ -21,8 +22,14 @@ export default function AdHighlights({ videoId, onSeek }) {
   }, [videoId, trends]);
 
   useEffect(() => {
-    fetchHighlights();
+    fetchHighlights(false);
   }, [fetchHighlights]);
+
+  const handleDownload = (e, index) => {
+    e.stopPropagation();
+    const url = api.downloadHighlightUrl(videoId, index);
+    window.open(url, '_blank');
+  };
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-slate-900/50">
@@ -31,7 +38,7 @@ export default function AdHighlights({ videoId, onSeek }) {
           <Sparkles size={14} className="text-amber-400" /> Ad Highlights
         </h2>
         <button 
-          onClick={fetchHighlights}
+          onClick={() => fetchHighlights(true)}
           disabled={loading}
           className="p-1.5 hover:bg-slate-800 rounded-md text-slate-400 transition-colors"
           title="Refresh highlights"
@@ -76,22 +83,44 @@ export default function AdHighlights({ videoId, onSeek }) {
                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
                   <Play size={32} className="text-white fill-white" />
                 </div>
-                <div className="absolute top-2 left-2 bg-amber-500 text-black text-[10px] font-bold px-1.5 py-0.5 rounded shadow-lg">
-                  #HIGHLIGHT {idx + 1}
+                <div className="absolute top-2 left-2 flex gap-1">
+                  <div className="bg-amber-500 text-black text-[10px] font-bold px-1.5 py-0.5 rounded shadow-lg">
+                    #HIGHLIGHT {idx + 1}
+                  </div>
+                  {h.viral_score && (
+                    <div className="bg-violet-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow-lg flex items-center gap-0.5">
+                      <TrendingUp size={8} /> {Math.round(h.viral_score)}
+                    </div>
+                  )}
                 </div>
-                <div className="absolute bottom-2 right-2 bg-black/60 backdrop-blur-md text-white text-[10px] px-1.5 py-0.5 rounded border border-white/10">
-                  {Math.floor(h.timestamp / 60)}:{(h.timestamp % 60).toFixed(0).padStart(2, '0')}
+                <div className="absolute bottom-2 right-2 flex gap-1">
+                  <div className="bg-black/60 backdrop-blur-md text-white text-[10px] px-1.5 py-0.5 rounded border border-white/10 flex items-center gap-1">
+                    <Scissors size={8} className="text-violet-400" />
+                    {formatSeconds(h.refined_end - h.refined_start)}
+                  </div>
+                  <div className="bg-black/60 backdrop-blur-md text-white text-[10px] px-1.5 py-0.5 rounded border border-white/10">
+                    {formatSeconds(h.timestamp)}
+                  </div>
                 </div>
               </div>
               
               <div className="p-3 space-y-2">
-                <div className="flex items-start gap-2">
-                  <div className="mt-1 p-1 bg-violet-500/20 rounded text-violet-400">
-                    <TrendingUp size={12} />
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2 flex-1">
+                    <div className="mt-1 p-1 bg-violet-500/20 rounded text-violet-400">
+                      <TrendingUp size={12} />
+                    </div>
+                    <p className="text-[12px] text-slate-300 leading-tight">
+                      {h.reason}
+                    </p>
                   </div>
-                  <p className="text-[12px] text-slate-300 leading-tight">
-                    {h.reason}
-                  </p>
+                  <button
+                    onClick={(e) => handleDownload(e, idx)}
+                    className="p-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors shadow-lg shadow-violet-900/20 shrink-0"
+                    title="Download refined clip"
+                  >
+                    <Download size={14} />
+                  </button>
                 </div>
                 
                 <div className="bg-slate-900/60 rounded-lg p-2 border border-slate-700/30">

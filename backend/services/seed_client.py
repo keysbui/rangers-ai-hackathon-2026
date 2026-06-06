@@ -307,23 +307,38 @@ def answer_question(
 
 
 _HIGHLIGHT_PROMPT = """
-You are a creative ad director. Given the video segments below and a set of market trends, select the top 3 segments most suitable for a viral short video ad (TikTok/Reels style).
+You are a world-class Video Editor. Your mission is to find the absolute best "viral" moments from an e-commerce livestream and define precise cut points.
 
 Trends: {trends}
 
-Segments:
+CONTEXT (Full Video Sequence):
+The following JSON is a chronological list of video segments. 
+CRITICAL: IGNORE the segment boundaries. Treat this as one continuous timeline from 0.0 to the end.
 {segment_data}
 
-For each selected segment, provide:
-1. "timestamp": start time of the segment
-2. "reason": why this segment is perfect for the trends
-3. "ad_copy": a catchy, high-conversion caption for this segment in {language}
+CRITICAL EDITING RULES:
+1. **NO BOUNDARIES**: Your highlight `refined_start` and `refined_end` should be based on the STORY, not the provided segment times. If a story starts at 12.4s and ends at 78.2s, use exactly those times.
+2. **COMPLETE STORY ARC**: A highlight MUST be a complete "mini-video". 
+   - It starts when the host begins a new pitch, a new product, or a new energetic hook.
+   - It ends ONLY after the pitch is complete, the price is shown, and the host reaches a natural pause.
+   - Most good highlights will be between 30 and 90 seconds. If your output is exactly 30 seconds, you are likely failing to capture the full story.
+3. **DIALOGUE INTEGRITY**: 
+   - Start the cut EXACTLY at the beginning of a sentence.
+   - End the cut EXACTLY at the end of a sentence. 
+   - NEVER cut while someone is mid-word or mid-sentence.
+4. **NO CHOPPY CUTS**: If you find a high-energy moment, look 10-20 seconds before and after it to ensure the context is captured.
 
-Return ONLY a valid JSON object with a "highlights" key containing a list of objects.
-Example:
+OUTPUT FORMAT (Return ONLY a valid JSON object):
 {{
   "highlights": [
-    {{ "timestamp": 12.5, "reason": "...", "ad_copy": "..." }},
+    {{
+      "original_anchor": <the start time of the most energetic segment in this highlight>,
+      "refined_start": <absolute_start_time_in_seconds_from_video_start>,
+      "refined_end": <absolute_end_time_in_seconds_from_video_start_after_completing_the_story>,
+      "reason": "Explain the full story arc of this cut and why it's not choppy",
+      "ad_copy": "Viral caption in {language}",
+      "viral_score": <0-100>
+    }},
     ...
   ]
 }}

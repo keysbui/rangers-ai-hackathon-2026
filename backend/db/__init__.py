@@ -31,3 +31,17 @@ def init_db():
     sql = _SCHEMA.read_text()
     with get_db() as conn:
         conn.executescript(sql)
+        
+        # Migration: Ensure new columns exist in Highlights
+        try:
+            cursor = conn.execute("PRAGMA table_info(Highlights)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if columns:
+                if "viral_score" not in columns:
+                    conn.execute("ALTER TABLE Highlights ADD COLUMN viral_score REAL DEFAULT 0.0")
+                if "refined_start" not in columns:
+                    conn.execute("ALTER TABLE Highlights ADD COLUMN refined_start REAL")
+                if "refined_end" not in columns:
+                    conn.execute("ALTER TABLE Highlights ADD COLUMN refined_end REAL")
+        except Exception:
+            pass

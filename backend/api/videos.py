@@ -18,8 +18,8 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Background
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 
 from services.highlight_service import get_trending_highlights
-from services.clip_service import extract_clip
-from config import RAW_VIDEO_DIR, THUMBNAIL_DIR
+from services.clip_service import extract_clip, generate_ad_clip
+from config import RAW_VIDEO_DIR, THUMBNAIL_DIR, STORAGE_DIR
 from db import get_db
 from models.video import VideoResponse, VideoStatus
 from services import pipeline
@@ -178,6 +178,49 @@ def get_timeline(video_id: str):
 def get_highlights(video_id: str, trends: str | None = None, language: str = "vi", refresh: bool = False):
     """Get AI-recommended highlight segments for brand advertising based on trends."""
     return get_trending_highlights(video_id, trends, language, force_refresh=refresh)
+
+
+@router.get("/{video_id}/highlights/{index}/download")
+def download_highlight(video_id: str, index: int):
+    """Generate and download a high-quality ad clip for a specific highlight."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM Highlights WHERE video_id=? ORDER BY viral_score DESC",
+            (video_id,)
+        ).fetchall()
+    
+    if index < 0 or index >= len(rows):
+        raise HTTPException(status_code=404, detail="Highlight index out of range")
+    
+    row = rows[index]
+    video_path = _find_video_file(video_id)
+    if not video_path:
+        raise HTTPException(status_code=404, detail="Original video not found")
+    
+    # Use refined timestamps if available
+    start = row["refined_start"] if row["refined_start"] is not None else row["timestamp_start"]
+    end = row["refined_end"] if row["refined_end"] is not None else row["timestamp_end"]
+    
+    exports_dir = STORAGE_DIR / "exports"
+    exports_dir.mkdir(exist_ok=True)
+    
+    # Use a hash of timestamps to ensure unique filenames if the highlight is re-refined
+    import hashlib
+    ts_hash = hashlib.md5(f"{start}_{end}".encode()).hexdigest()[:8]
+    out_name = f"ad_{video_id}_{index}_{ts_hash}.mp4"
+    out_path = exports_dir / out_name
+    
+    # If file doesn't exist, generate it
+    if not out_path.exists():
+        success = generate_ad_clip(video_path, start, end, out_path)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to generate ad clip")
+            
+    return FileResponse(
+        str(out_path),
+        media_type="video/mp4",
+        filename=f"highlight_{index+1}.mp4"
+    )
 
 
 @router.post("/{video_id}/process")
