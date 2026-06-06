@@ -67,3 +67,21 @@ CREATE TABLE IF NOT EXISTS Highlights (
 );
 
 CREATE INDEX IF NOT EXISTS idx_highlights_video_id ON Highlights(video_id);
+
+CREATE TABLE IF NOT EXISTS QA_History (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id          TEXT NOT NULL REFERENCES Videos(id) ON DELETE CASCADE,
+    question          TEXT NOT NULL,
+    language          TEXT NOT NULL DEFAULT 'vi',
+    answer            TEXT,
+    timestamp         REAL,
+    timestamp_end     REAL,
+    thumbnail_url     TEXT,
+    reasoning_proof   TEXT,
+    tokens_input      INTEGER DEFAULT 0,
+    tokens_output     INTEGER DEFAULT 0,
+    tokens_cache_read INTEGER DEFAULT 0,
+    latency_ms        REAL,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_qa_history_video_id ON QA_History(video_id);
