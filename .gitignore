@@ -5,6 +5,10 @@ backend/**/__pycache__/
 *.pyc
 *.pyo
 
+# Backend
+backend/storage/
+backend/storage/exports/
+
 # Storage (raw videos + thumbnails are large)
 storage/raw_videos/
 storage/thumbnails/

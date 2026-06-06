@@ -36,7 +36,7 @@ def get_trending_highlights(
     if not force_refresh:
         with get_db() as conn:
             stored = conn.execute(
-                "SELECT * FROM Highlights WHERE video_id=? ORDER BY timestamp_start",
+                "SELECT * FROM Highlights WHERE video_id=? ORDER BY viral_score DESC",
                 (video_id,)
             ).fetchall()
             if stored:
@@ -44,10 +44,13 @@ def get_trending_highlights(
                     {
                         "timestamp": row["timestamp_start"],
                         "timestamp_end": row["timestamp_end"],
+                        "refined_start": row["refined_start"] if row["refined_start"] is not None else row["timestamp_start"],
+                        "refined_end": row["refined_end"] if row["refined_end"] is not None else row["timestamp_end"],
                         "reason": row["reason"],
                         "ad_copy": row["ad_copy"],
                         "thumbnail_url": row["thumbnail_url"],
                         "energy_score": row["energy_score"],
+                        "viral_score": row["viral_score"],
                     }
                     for row in stored
                 ]
@@ -59,24 +62,29 @@ def get_trending_highlights(
                 }
 
     # Stage 1: Get top N segments by energy score as candidates
-    # We could also do keyword matching if we had trend keywords
     with get_db() as conn:
-        rows = conn.execute(
+        top_rows = conn.execute(
             """
             SELECT * FROM Timeline_Metadata
             WHERE video_id = ?
             ORDER BY energy_score DESC
-            LIMIT 10
+            LIMIT 8
             """,
             (video_id,),
         ).fetchall()
 
-    if not rows:
+    if not top_rows:
         return {"highlights": [], "latency_ms": (time.time() - t0) * 1000}
+
+    # Fetch ALL segments for this video to provide full context to LLM
+    with get_db() as conn:
+        all_rows = conn.execute(
+            "SELECT * FROM Timeline_Metadata WHERE video_id = ? ORDER BY timestamp_start",
+            (video_id,)
+        ).fetchall()
 
     segment_data = [
         {
-            "id": row["id"],
             "timestamp_start": row["timestamp_start"],
             "timestamp_end": row["timestamp_end"],
             "transcript": row["transcript"],
@@ -85,7 +93,7 @@ def get_trending_highlights(
             "detected_skus": row["detected_skus"],
             "energy_score": row["energy_score"],
         }
-        for row in rows
+        for row in all_rows
     ]
 
     # Stage 2: Let Seed rank them and provide ad copy
@@ -98,25 +106,41 @@ def get_trending_highlights(
     highlights = []
     to_store = []
     for h in seed_result.get("highlights", []):
-        ts = float(h.get("timestamp", 0.0))
-        # Find the original segment to get the correct end time and other metadata
+        ts = float(h.get("original_anchor", 0.0))
+        # Find the original segment to get metadata for thumbnail
         original = next((s for s in segment_data if abs(s["timestamp_start"] - ts) < 0.1), None)
         
-        ts_end = original["timestamp_end"] if original else ts + 5.0
+        # New refined timestamps from LLM - absolute values
+        ref_start = float(h.get("refined_start", ts))
+        ref_end = float(h.get("refined_end", ts + 15.0)) # Default 15s if missing
+        
+        # Enforce 120s limit and ensure logical order
+        if ref_end <= ref_start:
+            ref_end = ref_start + 15.0
+        if ref_end - ref_start > 120:
+            ref_end = ref_start + 120
+
         reason = h.get("reason", "")
         ad_copy = h.get("ad_copy", "")
-        thumb = _thumbnail_url(video_id, ts)
+        thumb = _thumbnail_url(video_id, ref_start) # Thumbnail at the exact start of highlight
         energy = original["energy_score"] if original else 0.0
+        viral = float(h.get("viral_score", 0.0))
 
         highlights.append({
-            "timestamp": ts,
-            "timestamp_end": ts_end,
+            "timestamp": ts, # keeping for anchor reference
+            "timestamp_end": ref_end, # keeping for reference
+            "refined_start": ref_start,
+            "refined_end": ref_end,
             "reason": reason,
             "ad_copy": ad_copy,
             "thumbnail_url": thumb,
             "energy_score": energy,
+            "viral_score": viral,
         })
-        to_store.append((video_id, ts, ts_end, reason, ad_copy, thumb, energy))
+        to_store.append((video_id, ts, ref_end, ref_start, ref_end, reason, ad_copy, thumb, energy, viral))
+
+    # Sort by viral score descending
+    highlights.sort(key=lambda x: x["viral_score"], reverse=True)
 
     # Stage 3: Store in database
     if to_store:
@@ -128,8 +152,9 @@ def get_trending_highlights(
             conn.executemany(
                 """
                 INSERT INTO Highlights 
-                    (video_id, timestamp_start, timestamp_end, reason, ad_copy, thumbnail_url, energy_score)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (video_id, timestamp_start, timestamp_end, refined_start, refined_end, 
+                     reason, ad_copy, thumbnail_url, energy_score, viral_score)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 to_store
             )

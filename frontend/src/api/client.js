@@ -43,6 +43,7 @@ export const api = {
     const q = params.toString() ? `?${params.toString()}` : "";
     return request("GET", `/api/videos/${id}/highlights${q}`);
   },
+  downloadHighlightUrl: (id, index) => `${BASE_URL}/api/videos/${id}/highlights/${index}/download`,
   reprocessVideo: (id) => request("POST", `/api/videos/${id}/process`),
   streamUrl: (id) => `${BASE_URL}/api/videos/${id}/stream`,
 

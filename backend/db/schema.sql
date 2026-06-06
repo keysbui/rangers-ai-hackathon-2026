@@ -59,10 +59,13 @@ CREATE TABLE IF NOT EXISTS Highlights (
     video_id        TEXT NOT NULL REFERENCES Videos(id) ON DELETE CASCADE,
     timestamp_start REAL NOT NULL,
     timestamp_end   REAL NOT NULL,
+    refined_start   REAL,
+    refined_end     REAL,
     reason          TEXT,
     ad_copy         TEXT,
     thumbnail_url   TEXT,
     energy_score    REAL DEFAULT 0.0,
+    viral_score     REAL DEFAULT 0.0,
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
