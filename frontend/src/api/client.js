@@ -25,6 +25,10 @@ export const api = {
   getVideo: (id) => request("GET", `/api/videos/${id}`),
   deleteVideo: (id) => request("DELETE", `/api/videos/${id}`),
   getTimeline: (id) => request("GET", `/api/videos/${id}/timeline`),
+  getHighlights: (id, trends) => {
+    const q = trends ? `?trends=${encodeURIComponent(trends)}` : "";
+    return request("GET", `/api/videos/${id}/highlights${q}`);
+  },
   reprocessVideo: (id) => request("POST", `/api/videos/${id}/process`),
   streamUrl: (id) => `${BASE_URL}/api/videos/${id}/stream`,
 

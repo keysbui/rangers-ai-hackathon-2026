@@ -17,6 +17,8 @@ import httpx
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, BackgroundTasks, Request
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 
+from services.highlight_service import get_trending_highlights
+from services.clip_service import extract_clip
 from config import RAW_VIDEO_DIR, THUMBNAIL_DIR
 from db import get_db
 from models.video import VideoResponse, VideoStatus
@@ -170,6 +172,12 @@ def get_timeline(video_id: str):
             (video_id,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+@router.get("/{video_id}/highlights")
+def get_highlights(video_id: str, trends: str | None = None, language: str = "vi"):
+    """Get AI-recommended highlight segments for brand advertising based on trends."""
+    return get_trending_highlights(video_id, trends, language)
 
 
 @router.post("/{video_id}/process")
