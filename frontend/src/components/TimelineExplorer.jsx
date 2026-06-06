@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { Clock, ShoppingBag, Music, AlertTriangle, Zap, Sparkles } from "lucide-react";
 import { formatSeconds } from "../utils/costTracker";
 import AdHighlights from "./AdHighlights";

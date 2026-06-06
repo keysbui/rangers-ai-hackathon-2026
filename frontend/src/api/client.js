@@ -25,8 +25,11 @@ export const api = {
   getVideo: (id) => request("GET", `/api/videos/${id}`),
   deleteVideo: (id) => request("DELETE", `/api/videos/${id}`),
   getTimeline: (id) => request("GET", `/api/videos/${id}/timeline`),
-  getHighlights: (id, trends) => {
-    const q = trends ? `?trends=${encodeURIComponent(trends)}` : "";
+  getHighlights: (id, trends, refresh = false) => {
+    const params = new URLSearchParams();
+    if (trends) params.append("trends", trends);
+    if (refresh) params.append("refresh", "true");
+    const q = params.toString() ? `?${params.toString()}` : "";
     return request("GET", `/api/videos/${id}/highlights${q}`);
   },
   reprocessVideo: (id) => request("POST", `/api/videos/${id}/process`),

@@ -53,3 +53,17 @@ CREATE TRIGGER IF NOT EXISTS tm_au AFTER UPDATE ON Timeline_Metadata BEGIN
     INSERT INTO Timeline_FTS(rowid, transcript, ocr_text, detected_skus)
     VALUES (new.id, new.transcript, new.ocr_text, new.detected_skus);
 END;
+
+CREATE TABLE IF NOT EXISTS Highlights (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id        TEXT NOT NULL REFERENCES Videos(id) ON DELETE CASCADE,
+    timestamp_start REAL NOT NULL,
+    timestamp_end   REAL NOT NULL,
+    reason          TEXT,
+    ad_copy         TEXT,
+    thumbnail_url   TEXT,
+    energy_score    REAL DEFAULT 0.0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_highlights_video_id ON Highlights(video_id);

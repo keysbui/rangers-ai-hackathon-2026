@@ -175,9 +175,9 @@ def get_timeline(video_id: str):
 
 
 @router.get("/{video_id}/highlights")
-def get_highlights(video_id: str, trends: str | None = None, language: str = "vi"):
+def get_highlights(video_id: str, trends: str | None = None, language: str = "vi", refresh: bool = False):
     """Get AI-recommended highlight segments for brand advertising based on trends."""
-    return get_trending_highlights(video_id, trends, language)
+    return get_trending_highlights(video_id, trends, language, force_refresh=refresh)
 
 
 @router.post("/{video_id}/process")
