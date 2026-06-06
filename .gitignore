@@ -1,0 +1,25 @@
+# Python
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
+*.pyo
+
+# Storage (raw videos + thumbnails are large)
+storage/raw_videos/
+storage/thumbnails/
+storage/db.sqlite3
+storage/*.csv
+
+# Environment
+.env
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# macOS
+.DS_Store
+
+# PySceneDetect output CSVs
+*.csv

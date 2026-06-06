@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #0f1117;
+  color: #e2e8f0;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #1e2030; }
+::-webkit-scrollbar-thumb { background: #4a5568; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #718096; }
+
+/* Timestamp chip */
+.timestamp-chip {
+  @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-mono
+         bg-violet-900/60 text-violet-300 cursor-pointer hover:bg-violet-700/70
+         transition-colors border border-violet-700/40;
+}
+
+/* Energy bar animation */
+@keyframes pulse-energy {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.energy-high { animation: pulse-energy 1.5s ease-in-out infinite; }
