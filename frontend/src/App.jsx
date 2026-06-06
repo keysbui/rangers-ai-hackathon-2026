@@ -10,6 +10,7 @@ export default function App() {
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [timeline, setTimeline] = useState([]);
   const [compliance, setCompliance] = useState([]);
+  const [policyAudit, setPolicyAudit] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [videoSrc, setVideoSrc] = useState(null);
   const playerRef = useRef(null);
@@ -21,6 +22,7 @@ export default function App() {
       activeIdRef.current = null;
       setTimeline([]);
       setCompliance([]);
+      setPolicyAudit([]);
       setVideoSrc(null);
       return;
     }
@@ -29,6 +31,7 @@ export default function App() {
     activeIdRef.current = id;
     setTimeline([]);
     setCompliance([]);
+    setPolicyAudit([]);
     setVideoSrc(api.streamUrl(id));
 
     const poll = async () => {
@@ -44,6 +47,16 @@ export default function App() {
           api.getCompliance(id)
             .then((c) => {
               if (activeIdRef.current === id) setCompliance(c.issues || []);
+            })
+            .catch(() => {});
+          api.getPolicyAudit(id, {
+            mode: "auto",
+            limit: 200,
+            min_confidence: 0.5,
+            max_model_calls: 50,
+          })
+            .then((r) => {
+              if (activeIdRef.current === id) setPolicyAudit(r.segments || []);
             })
             .catch(() => {});
         } else if (v.status !== "error") {
@@ -117,6 +130,7 @@ export default function App() {
           videoId={selectedVideo?.id}
           timeline={timeline}
           complianceIssues={compliance}
+          policyAuditSegments={policyAudit}
           onSeek={seekTo}
         />
 

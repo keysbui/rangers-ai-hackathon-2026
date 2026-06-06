@@ -1,5 +1,16 @@
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
+function withQuery(path, params) {
+  if (!params) return path;
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v === undefined || v === null) return;
+    qs.set(k, String(v));
+  });
+  const q = qs.toString();
+  return q ? `${path}?${q}` : path;
+}
+
 async function request(method, path, body, isFormData = false) {
   const opts = { method, headers: {} };
   if (body) {
@@ -42,6 +53,10 @@ export const api = {
 
   // Compliance
   getCompliance: (videoId) => request("GET", `/api/compliance/${videoId}`),
+
+  // Policy audit
+  getPolicyAudit: (videoId, params) =>
+    request("GET", withQuery(`/api/policy-audit/${videoId}`, params)),
 
   // Thumbnails
   thumbnailUrl: (videoId, ts) => {

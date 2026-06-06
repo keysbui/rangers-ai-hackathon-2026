@@ -7,6 +7,7 @@ from db import init_db
 from api.videos import router as videos_router
 from api.query import router as query_router
 from api.compliance import router as compliance_router
+from api.policy_audit import router as policy_audit_router
 from config import THUMBNAIL_DIR, STORAGE_DIR
 
 
@@ -35,6 +36,7 @@ app.add_middleware(
 app.include_router(videos_router)
 app.include_router(query_router)
 app.include_router(compliance_router)
+app.include_router(policy_audit_router)
 
 app.mount("/thumbnails", StaticFiles(directory=str(THUMBNAIL_DIR)), name="thumbnails")
 
