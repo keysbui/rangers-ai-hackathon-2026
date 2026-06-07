@@ -1,18 +1,21 @@
 """
-Two-Stage Retrieval Engine:
-  Stage 1: FTS5 keyword search on SQLite to find candidate segments.
-  Stage 2: Send candidates + question to Seed-2.0-mini for deep reasoning.
+Single-Stage Long-Context Retrieval Engine:
+  Fetch every segment of the video ordered by timestamp and send the full
+  timeline to Seed-2.0-mini in one call so the model can reason over the
+  entire context without being constrained by keyword matching.
+
+  Rationale: Vietnamese word-segmentation and synonym variation caused FTS5
+  keyword search to miss relevant segments.  The trade-off is higher token
+  usage per query, which is acceptable as long as the video timeline fits
+  within the model's context window.
 """
 from __future__ import annotations
 
-import re
 import time
-from pathlib import Path
 from typing import Any
 
 from db import get_db
 from services.seed_client import answer_question
-from services.frame_service import get_frame_path
 from config import THUMBNAIL_DIR
 
 
@@ -22,60 +25,45 @@ def _thumbnail_url(video_id: str, timestamp: float) -> str | None:
     return f"/thumbnails/{video_id}/{frame_idx:06d}.jpg" if full.exists() else None
 
 
-def _build_fts_query(question: str) -> str:
+def _segment_end_for(segments: list[dict], ts: float) -> float | None:
     """
-    Convert a free-text question into a safe FTS5 MATCH query.
-    Extracts Unicode word tokens, quotes each one, and joins with OR
-    so punctuation like '?' or ':' cannot break FTS5 syntax.
+    Return the timestamp_end of the segment whose time range contains *ts*.
+    Falls back to the end of the last segment when *ts* is beyond all ranges,
+    and to None when *segments* is empty.
     """
-    tokens = re.findall(r"\w+", question, flags=re.UNICODE)
-    # Drop very short tokens (single chars) to reduce noise
-    tokens = [t for t in tokens if len(t) > 1]
-    if not tokens:
-        return ""
-    return " OR ".join(f'"{t}"' for t in tokens)
+    if not segments:
+        return None
+    for seg in segments:
+        if seg["timestamp_start"] <= ts <= seg["timestamp_end"]:
+            return seg["timestamp_end"]
+    # ts is past the last segment — return the last segment's end
+    return segments[-1]["timestamp_end"]
 
 
 def retrieve_and_answer(
     video_id: str,
     question: str,
     language: str = "vi",
-    top_k: int = 5,
 ) -> dict[str, Any]:
+    """
+    Single-stage retrieval: load the full segment timeline for *video_id* and
+    send it to the LLM so it can reason over every moment without keyword bias.
+    """
     t0 = time.time()
 
-    fts_query = _build_fts_query(question)
-
-    # Stage 1: FTS5 full-text search (skip if no usable tokens)
     with get_db() as conn:
-        fts_rows = []
-        if fts_query:
-            fts_rows = conn.execute(
-                """
-                SELECT tm.*
-                FROM Timeline_FTS fts
-                JOIN Timeline_Metadata tm ON tm.id = fts.rowid
-                WHERE fts.Timeline_FTS MATCH ?
-                  AND tm.video_id = ?
-                ORDER BY fts.rank
-                LIMIT ?
-                """,
-                (fts_query, video_id, top_k),
-            ).fetchall()
+        rows = conn.execute(
+            """
+            SELECT timestamp_start, timestamp_end, transcript,
+                   ocr_text, audio_event, detected_skus
+            FROM Timeline_Metadata
+            WHERE video_id = ?
+            ORDER BY timestamp_start
+            """,
+            (video_id,),
+        ).fetchall()
 
-        if not fts_rows:
-            # Fallback: grab first N segments ordered by timestamp
-            fts_rows = conn.execute(
-                """
-                SELECT * FROM Timeline_Metadata
-                WHERE video_id = ?
-                ORDER BY timestamp_start
-                LIMIT ?
-                """,
-                (video_id, top_k),
-            ).fetchall()
-
-    if not fts_rows:
+    if not rows:
         total_ms = (time.time() - t0) * 1000
         return {
             "answer": "No video data found. Please process the video first.",
@@ -87,7 +75,6 @@ def retrieve_and_answer(
             "latency_ms": total_ms,
         }
 
-    # Stage 2: Send candidates to Seed for reasoning
     segment_data = [
         {
             "timestamp_start": row["timestamp_start"],
@@ -97,30 +84,24 @@ def retrieve_and_answer(
             "audio_event": row["audio_event"],
             "detected_skus": row["detected_skus"],
         }
-        for row in fts_rows
+        for row in rows
     ]
-
-    best_segment = fts_rows[0]
-    frame_paths: list[Path] = []
-    fp = get_frame_path(video_id, best_segment["timestamp_start"])
-    if fp:
-        frame_paths.append(fp)
 
     seed_result = answer_question(
         segment_data=segment_data,
         question=question,
         language=language,
-        frame_paths=frame_paths,
     )
 
-    answer_ts = seed_result.get("timestamp") or best_segment["timestamp_start"]
+    answer_ts = seed_result.get("timestamp") or rows[0]["timestamp_start"]
+    answer_ts_end = _segment_end_for(segment_data, float(answer_ts))
     thumb = _thumbnail_url(video_id, float(answer_ts))
 
     total_ms = (time.time() - t0) * 1000
     return {
         "answer": seed_result.get("answer", ""),
         "timestamp": answer_ts,
-        "timestamp_end": best_segment["timestamp_end"],
+        "timestamp_end": answer_ts_end,
         "thumbnail_url": thumb,
         "reasoning_proof": seed_result.get("reasoning_proof", ""),
         "tokens_used": seed_result.get("_tokens", {"input": 0, "output": 0, "cache_read": 0}),
