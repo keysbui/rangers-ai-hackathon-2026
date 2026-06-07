@@ -6,6 +6,13 @@ import ChatPanel from "./components/ChatPanel";
 import CostDashboard from "./components/CostDashboard";
 import { api } from "./api/client";
 
+const TIMELINE_WIDTH = 300;
+const DIVIDER_WIDTH = 10;
+const MIN_VIDEO_WIDTH = 480;
+const MIN_CHAT_WIDTH = 280;
+const DEFAULT_CHAT_WIDTH = 320;
+const CHAT_RESIZE_STEP = 24;
+
 export default function App() {
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [timeline, setTimeline] = useState([]);
@@ -13,9 +20,73 @@ export default function App() {
   const [policyAudit, setPolicyAudit] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [videoSrc, setVideoSrc] = useState(null);
+  const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
   const playerRef = useRef(null);
+  const mainLayoutRef = useRef(null);
   // Tracks the currently active video so stale polls cannot overwrite newer state
   const activeIdRef = useRef(null);
+
+  const clampChatWidth = useCallback((width) => {
+    const layout = mainLayoutRef.current;
+    if (!layout) return Math.max(MIN_CHAT_WIDTH, width);
+
+    const maxChatWidth = Math.max(
+      MIN_CHAT_WIDTH,
+      layout.clientWidth - TIMELINE_WIDTH - DIVIDER_WIDTH - MIN_VIDEO_WIDTH
+    );
+
+    return Math.min(Math.max(width, MIN_CHAT_WIDTH), maxChatWidth);
+  }, []);
+
+  const resizeChatFromClientX = useCallback((clientX) => {
+    const layout = mainLayoutRef.current;
+    if (!layout) return;
+
+    const bounds = layout.getBoundingClientRect();
+    setChatWidth(clampChatWidth(bounds.right - clientX));
+  }, [clampChatWidth]);
+
+  const handleResizePointerDown = useCallback((event) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    resizeChatFromClientX(event.clientX);
+
+    const handlePointerMove = (moveEvent) => {
+      resizeChatFromClientX(moveEvent.clientX);
+    };
+
+    const stopResize = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopResize);
+      window.removeEventListener("pointercancel", stopResize);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopResize);
+    window.addEventListener("pointercancel", stopResize);
+  }, [resizeChatFromClientX]);
+
+  const handleResizeKeyDown = useCallback((event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home") {
+      return;
+    }
+
+    event.preventDefault();
+    setChatWidth((width) => {
+      if (event.key === "Home") return clampChatWidth(DEFAULT_CHAT_WIDTH);
+      const direction = event.key === "ArrowLeft" ? CHAT_RESIZE_STEP : -CHAT_RESIZE_STEP;
+      return clampChatWidth(width + direction);
+    });
+  }, [clampChatWidth]);
+
+  useEffect(() => {
+    const handleWindowResize = () => {
+      setChatWidth((width) => clampChatWidth(width));
+    };
+
+    window.addEventListener("resize", handleWindowResize);
+    return () => window.removeEventListener("resize", handleWindowResize);
+  }, [clampChatWidth]);
 
   const loadVideoData = useCallback((video) => {
     if (!video) {
@@ -40,6 +111,7 @@ export default function App() {
       try {
         const v = await api.getVideo(id);
         if (activeIdRef.current !== id) return;
+        setSelectedVideo((current) => (current?.id === id ? v : current));
         if (v.status === "done") {
           const tl = await api.getTimeline(id);
           if (activeIdRef.current !== id) return;
@@ -62,18 +134,13 @@ export default function App() {
         } else if (v.status !== "error") {
           setTimeout(poll, 3000);
         }
-      } catch (err) {
-        console.error("Polling error:", err);
+      } catch {
+        // Polling is best-effort; the next user action can refresh video data.
       }
     };
 
     poll();
   }, []);
-
-  // Reload whenever the selected video id changes
-  useEffect(() => {
-    loadVideoData(selectedVideo);
-  }, [selectedVideo?.id, loadVideoData]);
 
   const seekTo = useCallback((seconds) => {
     if (playerRef.current) {
@@ -90,6 +157,7 @@ export default function App() {
     // If v is null (e.g. video was deleted), just set it
     if (!v) {
       setSelectedVideo(null);
+      loadVideoData(null);
       return;
     }
     // Re-clicking the same video should still refresh its data
@@ -97,6 +165,7 @@ export default function App() {
       loadVideoData(v);
     } else {
       setSelectedVideo(v);
+      loadVideoData(v);
     }
   };
 
@@ -124,7 +193,13 @@ export default function App() {
       <VideoSelector selectedId={selectedVideo?.id} onSelect={handleSelectVideo} />
 
       {/* Main 3-column layout */}
-      <div className="flex-1 min-h-0 grid grid-cols-[300px_1fr_320px] grid-rows-[minmax(0,1fr)] overflow-hidden">
+      <div
+        ref={mainLayoutRef}
+        className="flex-1 min-h-0 grid grid-rows-[minmax(0,1fr)] overflow-hidden"
+        style={{
+          gridTemplateColumns: `${TIMELINE_WIDTH}px minmax(${MIN_VIDEO_WIDTH}px, 1fr) ${DIVIDER_WIDTH}px minmax(${MIN_CHAT_WIDTH}px, ${chatWidth}px)`,
+        }}
+      >
         {/* Left: Timeline Explorer */}
         <TimelineExplorer
           videoId={selectedVideo?.id}
@@ -141,6 +216,23 @@ export default function App() {
           timeline={timeline}
           onTimeUpdate={() => {}}
         />
+
+        <div
+          role="separator"
+          aria-label="Resize video and chat panels"
+          aria-orientation="vertical"
+          tabIndex={0}
+          onPointerDown={handleResizePointerDown}
+          onDoubleClick={() => setChatWidth(DEFAULT_CHAT_WIDTH)}
+          onKeyDown={handleResizeKeyDown}
+          className="group relative cursor-col-resize bg-slate-900 border-x border-slate-800
+                     focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500
+                     touch-none"
+        >
+          <div className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2
+                          bg-slate-700/70 group-hover:bg-violet-500
+                          group-focus-visible:bg-violet-500 transition-colors" />
+        </div>
 
         {/* Right: Chat Q&A */}
         <ChatPanel

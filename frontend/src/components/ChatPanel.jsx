@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, Clock, Image as ImageIcon, Globe } from "lucide-react";
+import { Send, Bot, User, Clock, Image as ImageIcon, Globe, FileText, ShoppingBag } from "lucide-react";
 import { api } from "../api/client";
 import { formatSeconds } from "../utils/costTracker";
 
@@ -83,12 +83,31 @@ export default function ChatPanel({ videoId, onSeek, onTokensUsed }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [language, setLanguage] = useState("vi");
+  const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSummary(null);
+    if (!videoId) return;
+
+    api.getSummary(videoId, language)
+      .then((data) => {
+        if (!cancelled) setSummary(data);
+      })
+      .catch(() => {
+        if (!cancelled) setSummary(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [videoId, language]);
 
   const SYSTEM_MSG = {
     role: "system",
@@ -184,6 +203,30 @@ export default function ChatPanel({ videoId, onSeek, onTokensUsed }) {
 
       {/* Messages */}
       <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
+        {(summary?.overview || summary?.product_details) && (
+          <div className="mb-4 rounded-lg border border-slate-700/60 bg-slate-800/50 p-3">
+            {summary.overview && (
+              <div>
+                <div className="flex items-center gap-2 text-[11px] uppercase text-violet-300 mb-1">
+                  <FileText size={12} /> Summary
+                </div>
+                <p className="text-sm text-slate-100 leading-relaxed whitespace-pre-line">
+                  {summary.overview}
+                </p>
+              </div>
+            )}
+            {summary.product_details && (
+              <div className={summary.overview ? "mt-3 pt-3 border-t border-slate-700/50" : ""}>
+                <div className="flex items-center gap-2 text-[11px] uppercase text-emerald-300 mb-1">
+                  <ShoppingBag size={12} /> Products
+                </div>
+                <p className="text-sm text-slate-200 leading-relaxed whitespace-pre-line">
+                  {summary.product_details}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
         {messages.map((m, i) => (
           <Message key={i} msg={m} onSeek={onSeek} />
         ))}
