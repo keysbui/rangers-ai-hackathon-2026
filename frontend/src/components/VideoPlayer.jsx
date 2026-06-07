@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from "react";
+import { useState } from "react";
 import ReactPlayer from "react-player";
 import { Line } from "react-chartjs-2";
 import {

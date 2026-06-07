@@ -21,3 +21,10 @@ class VideoResponse(BaseModel):
     duration: Optional[float]
     status: VideoStatus
     created_at: str
+
+
+class VideoSummaryResponse(BaseModel):
+    video_id: str
+    language: str
+    overview: str
+    product_details: str

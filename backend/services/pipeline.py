@@ -11,7 +11,7 @@ from pathlib import Path
 from db import get_db
 from services.scene_service import detect_scenes
 from services.frame_service import extract_frames, get_frames_in_range
-from services.seed_client import analyze_segment, analyze_segment_video
+from services.seed_client import analyze_segment, analyze_segment_video, summarize_video
 from services.clip_service import extract_clip
 from config import THUMBNAIL_DIR
 
@@ -32,6 +32,8 @@ def run_pipeline(video_id: str, video_path: str):
     """Main pipeline: scene detect -> frame extract -> Seed analysis -> store."""
     try:
         with get_db() as conn:
+            conn.execute("DELETE FROM Video_Summaries WHERE video_id=?", (video_id,))
+            conn.execute("DELETE FROM Timeline_Metadata WHERE video_id=?", (video_id,))
             conn.execute(
                 "UPDATE Videos SET status='processing' WHERE id=?", (video_id,)
             )
@@ -53,6 +55,7 @@ def run_pipeline(video_id: str, video_path: str):
         # Step 3: For each scene, analyze with Seed.
         # Prefer sending the actual video clip (audio + visuals) so the model
         # can transcribe speech (ASR); fall back to frames if clipping fails.
+        timeline_data = []
         for start_sec, end_sec in scenes:
             clip_path = extract_clip(video_path, start_sec, end_sec)
             analysis = None
@@ -103,6 +106,38 @@ def run_pipeline(video_id: str, video_path: str):
                         thumb_url,
                     ),
                 )
+            timeline_data.append(
+                {
+                    "timestamp_start": start_sec,
+                    "timestamp_end": end_sec,
+                    "transcript": analysis.get("transcript", ""),
+                    "ocr_text": analysis.get("ocr_text", ""),
+                    "detected_skus": analysis.get("detected_skus", ""),
+                }
+            )
+
+        if timeline_data:
+            summaries = summarize_video(timeline_data)
+            with get_db() as conn:
+                for language in ("vi", "en", "th"):
+                    summary = summaries.get(language, {})
+                    conn.execute(
+                        """
+                        INSERT INTO Video_Summaries
+                            (video_id, language, overview, product_details)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(video_id, language) DO UPDATE SET
+                            overview=excluded.overview,
+                            product_details=excluded.product_details,
+                            updated_at=datetime('now')
+                        """,
+                        (
+                            video_id,
+                            language,
+                            summary.get("overview", ""),
+                            summary.get("product_details", ""),
+                        ),
+                    )
 
         with get_db() as conn:
             conn.execute(

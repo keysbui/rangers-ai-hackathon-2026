@@ -24,8 +24,20 @@ CREATE TABLE IF NOT EXISTS Timeline_Metadata (
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS Video_Summaries (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id            TEXT NOT NULL REFERENCES Videos(id) ON DELETE CASCADE,
+    language            TEXT NOT NULL,
+    overview            TEXT NOT NULL DEFAULT '',
+    product_details     TEXT NOT NULL DEFAULT '',
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(video_id, language)
+);
+
 CREATE INDEX IF NOT EXISTS idx_tm_video_id ON Timeline_Metadata(video_id);
 CREATE INDEX IF NOT EXISTS idx_tm_ts ON Timeline_Metadata(timestamp_start);
+CREATE INDEX IF NOT EXISTS idx_vs_video_lang ON Video_Summaries(video_id, language);
 
 -- FTS5 virtual table for fast full-text search
 CREATE VIRTUAL TABLE IF NOT EXISTS Timeline_FTS USING fts5(

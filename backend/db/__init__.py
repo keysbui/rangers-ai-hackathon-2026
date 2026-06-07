@@ -45,3 +45,21 @@ def init_db():
                     conn.execute("ALTER TABLE Highlights ADD COLUMN refined_end REAL")
         except Exception:
             pass
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS Video_Summaries (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                video_id            TEXT NOT NULL REFERENCES Videos(id) ON DELETE CASCADE,
+                language            TEXT NOT NULL,
+                overview            TEXT NOT NULL DEFAULT '',
+                product_details     TEXT NOT NULL DEFAULT '',
+                created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(video_id, language)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_vs_video_lang ON Video_Summaries(video_id, language)"
+        )

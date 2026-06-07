@@ -21,7 +21,7 @@ from services.highlight_service import get_trending_highlights
 from services.clip_service import extract_clip, generate_ad_clip
 from config import RAW_VIDEO_DIR, THUMBNAIL_DIR, STORAGE_DIR
 from db import get_db
-from models.video import VideoResponse, VideoStatus
+from models.video import VideoResponse, VideoStatus, VideoSummaryResponse
 from services import pipeline
 
 router = APIRouter(prefix="/api/videos", tags=["videos"])
@@ -174,6 +174,32 @@ def get_timeline(video_id: str):
     return [dict(r) for r in rows]
 
 
+@router.get("/{video_id}/summary", response_model=VideoSummaryResponse)
+def get_summary(video_id: str, language: str = "vi"):
+    language = language if language in {"vi", "en", "th"} else "vi"
+    with get_db() as conn:
+        video = conn.execute("SELECT id FROM Videos WHERE id=?", (video_id,)).fetchone()
+        if not video:
+            raise HTTPException(status_code=404, detail="Video not found")
+        row = conn.execute(
+            """
+            SELECT video_id, language, overview, product_details
+            FROM Video_Summaries
+            WHERE video_id=? AND language=?
+            """,
+            (video_id, language),
+        ).fetchone()
+
+    if not row:
+        return VideoSummaryResponse(
+            video_id=video_id,
+            language=language,
+            overview="",
+            product_details="",
+        )
+    return VideoSummaryResponse(**dict(row))
+
+
 @router.get("/{video_id}/highlights")
 def get_highlights(video_id: str, trends: str | None = None, language: str = "vi", refresh: bool = False):
     """Get AI-recommended highlight segments for brand advertising based on trends."""
@@ -249,6 +275,7 @@ def delete_video(video_id: str):
 
         # 1. Delete from DB
         conn.execute("DELETE FROM Videos WHERE id=?", (video_id,))
+        conn.execute("DELETE FROM Video_Summaries WHERE video_id=?", (video_id,))
         conn.execute("DELETE FROM Timeline_Metadata WHERE video_id=?", (video_id,))
 
     # 2. Delete physical video file

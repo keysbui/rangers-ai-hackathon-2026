@@ -36,6 +36,8 @@ export const api = {
   getVideo: (id) => request("GET", `/api/videos/${id}`),
   deleteVideo: (id) => request("DELETE", `/api/videos/${id}`),
   getTimeline: (id) => request("GET", `/api/videos/${id}/timeline`),
+  getSummary: (id, language = "vi") =>
+    request("GET", `/api/videos/${id}/summary?language=${encodeURIComponent(language)}`),
   getHighlights: (id, trends, refresh = false) => {
     const params = new URLSearchParams();
     if (trends) params.append("trends", trends);

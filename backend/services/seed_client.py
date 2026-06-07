@@ -125,6 +125,45 @@ Return ONLY a valid JSON object:
 }}
 """
 
+_SUMMARY_PROMPT = """
+You are an e-commerce livestream analyst.
+
+The data below comes from a processed video. It contains scene timestamps,
+seller speech transcripts, on-screen OCR, and detected product/SKU names.
+
+Video timeline data:
+{timeline_data}
+
+Create a concise video summary in all supported UI languages: Vietnamese (vi),
+English (en), and Thai (th).
+
+For each language return:
+- overview: one short paragraph explaining what the video is about.
+- product_details: one paragraph or compact bullet-style text listing products,
+  colors, prices, sizes, promotions, variants, and any other concrete product
+  details found in transcript/OCR/SKU fields.
+
+Rules:
+- Focus on the seller's dialogue and concrete on-screen product evidence.
+- If a color, price, size, or variant is not found, do not invent it.
+- Keep each field practical and readable for a shopper or operator.
+- Return ONLY a valid JSON object in this exact shape:
+{{
+  "vi": {{
+    "overview": "<Vietnamese overview>",
+    "product_details": "<Vietnamese product details>"
+  }},
+  "en": {{
+    "overview": "<English overview>",
+    "product_details": "<English product details>"
+  }},
+  "th": {{
+    "overview": "<Thai overview>",
+    "product_details": "<Thai product details>"
+  }}
+}}
+"""
+
 _POLICY_AUDIT_PROMPT = """
 You are a TikTok Shop livestream replay content policy auditor.
 
@@ -520,6 +559,50 @@ def rank_highlights(
     raw = _extract_message_text(response)
     parsed = _extract_json(raw)
     result = parsed if parsed is not None else {"highlights": []}
+
+    result["_latency_ms"] = latency_ms
+    result["_tokens"] = _usage_tokens(response.usage)
+    return result
+
+
+def summarize_video(timeline_data: list[dict[str, Any]]) -> dict[str, Any]:
+    """Create video-level summaries for all supported UI languages."""
+    compact = []
+    for seg in timeline_data:
+        compact.append(
+            {
+                "timestamp_start": seg.get("timestamp_start"),
+                "timestamp_end": seg.get("timestamp_end"),
+                "transcript": seg.get("transcript") or "",
+                "ocr_text": seg.get("ocr_text") or "",
+                "detected_skus": seg.get("detected_skus") or "",
+            }
+        )
+
+    prompt = _SUMMARY_PROMPT.format(
+        timeline_data=json.dumps(compact, ensure_ascii=False, indent=2)
+    )
+
+    t0 = time.time()
+    response = _get_client().chat.completions.create(
+        model=MODEL_ID,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=2500,
+        extra_body=_THINKING_OFF,
+    )
+    latency_ms = (time.time() - t0) * 1000
+
+    raw = _extract_message_text(response)
+    parsed = _extract_json(raw) or {}
+    result: dict[str, Any] = {}
+    for language in ("vi", "en", "th"):
+        value = parsed.get(language) if isinstance(parsed, dict) else None
+        if not isinstance(value, dict):
+            value = {}
+        result[language] = {
+            "overview": str(value.get("overview") or "").strip(),
+            "product_details": str(value.get("product_details") or "").strip(),
+        }
 
     result["_latency_ms"] = latency_ms
     result["_tokens"] = _usage_tokens(response.usage)
